@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airport Baggage Handling & Drop Simulator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- jsQR Library for Barcode Scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;600;800&family=Share+Tech+Mono&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+
+        .font-mono-tech {
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .font-display {
+            font-family: 'Chakra Petch', sans-serif;
+        }
+
+        /* Neon Glow Effects */
+        .glow-green {
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.4);
+        }
+        .glow-red {
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.5);
+            animation: pulse-red 1s infinite alternate;
+        }
+        .glow-blue {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+        }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+            100% { box-shadow: 0 0 35px rgba(239, 68, 68, 0.8); }
+        }
+
+        /* Conveyor animation background */
+        .conveyor-bg {
+            background: repeating-linear-gradient(
+                45deg,
+                #111827,
+                #111827 15px,
+                #1f2937 15px,
+                #1f2937 30px
+            );
+            background-size: 200% 200%;
+        }
+
+        .conveyor-active {
+            animation: conveyor-move 2s linear infinite;
+        }
+
+        @keyframes conveyor-move {
+            0% { background-position: 0 0; }
+            100% { background-position: 42px 0; }
+        }
+
+        /* Scanning laser line */
+        .scan-laser {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #22c55e;
+            box-shadow: 0 0 15px #22c55e, 0 0 30px #22c55e;
+            animation: scan-anim 2s linear infinite;
+        }
+
+        @keyframes scan-anim {
+            0% { top: 5%; opacity: 0.8; }
+            50% { top: 95%; opacity: 1; }
+            100% { top: 5%; opacity: 0.8; }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-2 md:p-4 selection:bg-cyan-500 selection:text-black">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-gray-900/90 border border-gray-800 rounded-xl p-3 md:p-4 mb-3 flex flex-wrap justify-between items-center backdrop-blur shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30">
+                <i data-lucide="plane-takeoff" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-lg md:text-xl font-bold tracking-wider font-display text-white flex items-center gap-2">
+                    BAGGAGE HANDLING SYSTEM
+                    <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono-tech">v2.4 ONLINE</span>
+                </h1>
+                <p class="text-xs text-gray-400">自動手荷物仕分け・通過検知システム（カメラ＆センサ連動）</p>
+            </div>
+        </div>
+
+        <!-- Audio & System Controls -->
+        <div class="flex items-center gap-3 mt-2 sm:mt-0">
+            <button id="audioToggleBtn" onclick="toggleAudio()" class="flex items-center gap-2 text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-2 rounded-lg border border-gray-700 transition">
+                <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400" id="audioIcon"></i>
+                <span id="audioStatus">サウンド: ON</span>
+            </button>
+            <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800 text-xs font-mono-tech text-gray-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="clockDisplay">00:00:00</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
+
+        <!-- Left Column: Camera Scanner & Live Monitor (7 Cols on large screen) -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            
+            <!-- Main Display Screen (Destination & Status Display) -->
+            <div id="displayBoard" class="relative bg-gray-950 border-2 border-gray-800 rounded-2xl p-6 flex flex-col justify-between min-h-[260px] md:min-h-[300px] overflow-hidden transition-all duration-300">
+                <!-- Background Grid Graphic -->
+                <div class="absolute inset-0 bg-[radial-gradient(#1f2937_1px,transparent_1px)] [background-size:16px_16px] opacity-30 pointer-events-none"></div>
+
+                <!-- Header info on screen -->
+                <div class="flex justify-between items-start z-10">
+                    <div class="flex items-center gap-2">
+                        <span id="statusBadge" class="px-3 py-1 text-xs font-mono-tech rounded-full bg-gray-800 text-gray-400 border border-gray-700 flex items-center gap-1.5">
+                            <i data-lucide="radar" class="w-3.5 h-3.5"></i>
+                            <span id="statusText">WAITING FOR TAG...</span>
+                        </span>
+                    </div>
+                    <div class="text-right font-mono-tech text-xs text-gray-500">
+                        <div id="flightNoDisplay">FLIGHT: ---</div>
+                        <div id="passengerDisplay">PASSENGER: ---</div>
+                    </div>
+                </div>
+
+                <!-- Center Large Destination Display -->
+                <div class="my-auto text-center z-10 py-4">
+                    <div id="destCode" class="text-7xl md:text-9xl font-black font-display tracking-tight text-gray-700 transition-all duration-200">
+                        ---
+                    </div>
+                    <div id="destName" class="text-lg md:text-2xl font-bold text-gray-500 tracking-widest mt-1">
+                        STANDBY
+                    </div>
+                </div>
+
+                <!-- Bottom Details on Screen -->
+                <div class="flex justify-between items-end z-10 text-xs font-mono-tech border-t border-gray-900 pt-3 text-gray-500">
+                    <div>TAG ID: <span id="tagIdDisplay" class="text-gray-300">---</span></div>
+                    <div id="gateInfo">SORTING BELT: --</div>
+                </div>
+            </div>
+
+            <!-- Conveyor & Camera Scanner Area -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-3 shadow-lg">
+                <div class="flex justify-between items-center px-1">
+                    <h2 class="text-sm font-bold text-gray-300 flex items-center gap-2">
+                        <i data-lucide="camera" class="w-4 h-4 text-blue-400"></i>
+                        リアルタイム・タグスキャナー (コンベア通過エリア)
+                    </h2>
+                    <button id="cameraToggleBtn" onclick="toggleCamera()" class="text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 px-2.5 py-1 rounded transition flex items-center gap-1">
+                        <i data-lucide="video" class="w-3.5 h-3.5"></i>
+                        <span id="cameraBtnText">カメラ起動</span>
+                    </button>
+                </div>
+
+                <!-- Camera / Conveyor Visual Viewport -->
+                <div class="relative w-full h-56 md:h-64 bg-black rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center conveyor-bg conveyor-active" id="scannerViewport">
+                    
+                    <!-- Scanning Laser Effect -->
+                    <div class="scan-laser" id="laserLine"></div>
+
+                    <!-- Video Feed for Camera Scanning -->
+                    <video id="webcamVideo" class="absolute inset-0 w-full h-full object-cover hidden" playsinline></video>
+                    <canvas id="qrCanvas" class="hidden"></canvas>
+
+                    <!-- Overlay Guide box -->
+                    <div class="absolute inset-0 border-2 border-dashed border-cyan-500/30 pointer-events-none rounded-xl m-4 flex items-center justify-center">
+                        <div class="text-center text-xs text-cyan-400/60 bg-gray-950/80 px-3 py-1.5 rounded-full border border-cyan-500/20 backdrop-blur">
+                            荷物のバーコード・タグをここに通過させてください
+                        </div>
+                    </div>
+
+                    <!-- Sensor Gate Visual -->
+                    <div class="absolute left-0 top-0 bottom-0 w-2 bg-gradient-to-r from-emerald-500/50 to-transparent"></div>
+                    <div class="absolute right-0 top-0 bottom-0 w-2 bg-gradient-to-l from-emerald-500/50 to-transparent"></div>
+                </div>
+
+                <!-- Quick Manual Simulator Triggers (添付画像タグベース) -->
+                <div>
+                    <div class="text-xs font-semibold text-gray-400 mb-2 flex items-center justify-between">
+                        <span>【模擬判定ボタン】テストタグ通過シミュレーション:</span>
+                        <span class="text-[10px] text-gray-500">※添付荷物タグ参照</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="simulateTagScan('HND')" class="bg-gray-800 hover:bg-gray-700 active:scale-95 border border-emerald-500/40 text-emerald-400 p-2.5 rounded-xl text-left transition group">
+                            <div class="text-xs font-bold font-mono-tech flex justify-between items-center">
+                                <span>HND (羽田)</span>
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
+                            </div>
+                            <div class="text-[10px] text-gray-400 mt-1">NH388 / 渡辺様</div>
+                        </button>
+
+                        <button onclick="simulateTagScan('YGJ')" class="bg-gray-800 hover:bg-gray-700 active:scale-95 border border-cyan-500/40 text-cyan-400 p-2.5 rounded-xl text-left transition group">
+                            <div class="text-xs font-bold font-mono-tech flex justify-between items-center">
+                                <span>YGJ (米子)</span>
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform"></i>
+                            </div>
+                            <div class="text-[10px] text-gray-400 mt-1">NH0389 / 渡辺様</div>
+                        </button>
+
+                        <button onclick="simulateTagScan('ERROR')" class="bg-gray-800 hover:bg-red-950/40 active:scale-95 border border-red-500/50 text-red-400 p-2.5 rounded-xl text-left transition group">
+                            <div class="text-xs font-bold font-mono-tech flex justify-between items-center">
+                                <span>未読取り通過</span>
+                                <i data-lucide="alert-triangle" class="w-3.5 h-3.5 group-hover:rotate-12 transition-transform"></i>
+                            </div>
+                            <div class="text-[10px] text-red-400/70 mt-1">警告音・エラー発動</div>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Right Column: Statistics & Logs (5 Cols on large screen) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+            
+            <!-- Statistics Cards Grid -->
+            <div class="grid grid-cols-4 gap-2">
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 text-center">
+                    <span class="text-[10px] font-mono-tech text-gray-400 block">TOTAL</span>
+                    <span id="statTotal" class="text-xl md:text-2xl font-bold font-mono-tech text-white">0</span>
+                </div>
+                <div class="bg-gray-900 border border-emerald-900/50 rounded-xl p-3 text-center">
+                    <span class="text-[10px] font-mono-tech text-emerald-400 block">HND</span>
+                    <span id="statHND" class="text-xl md:text-2xl font-bold font-mono-tech text-emerald-400">0</span>
+                </div>
+                <div class="bg-gray-900 border border-cyan-900/50 rounded-xl p-3 text-center">
+                    <span class="text-[10px] font-mono-tech text-cyan-400 block">YGJ</span>
+                    <span id="statYGJ" class="text-xl md:text-2xl font-bold font-mono-tech text-cyan-400">0</span>
+                </div>
+                <div class="bg-gray-900 border border-red-900/50 rounded-xl p-3 text-center">
+                    <span class="text-[10px] font-mono-tech text-red-400 block">ERRORS</span>
+                    <span id="statError" class="text-xl md:text-2xl font-bold font-mono-tech text-red-400">0</span>
+                </div>
+            </div>
+
+            <!-- Sorting Belt Status Visualizer -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
+                <div class="text-xs font-bold text-gray-300 mb-2.5 flex items-center justify-between">
+                    <span>レーン仕分け状態</span>
+                    <span class="text-[10px] text-gray-500 font-mono-tech">AUTOMATIC DIVERTER</span>
+                </div>
+                <div class="space-y-2">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-emerald-400 font-mono-tech font-bold">LANE 1: HND (Tokyo Haneda)</span>
+                            <span id="lane1Count" class="text-gray-400 font-mono-tech">0 items</span>
+                        </div>
+                        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                            <div id="lane1Bar" class="bg-emerald-500 h-full w-0 transition-all duration-500"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-cyan-400 font-mono-tech font-bold">LANE 2: YGJ (Yonago)</span>
+                            <span id="lane2Count" class="text-gray-400 font-mono-tech">0 items</span>
+                        </div>
+                        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                            <div id="lane2Bar" class="bg-cyan-500 h-full w-0 transition-all duration-500"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Processing Log Table -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex-1 flex flex-col justify-between shadow-lg">
+                <div>
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                            <i data-lucide="list" class="w-4 h-4 text-emerald-400"></i>
+                            処理ログ履歴 (Live Log)
+                        </h3>
+                        <button onclick="clearLogs()" class="text-[10px] text-gray-500 hover:text-gray-300 transition">
+                            ログ消去
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-[220px] lg:max-h-[280px]">
+                        <table class="w-full text-left text-xs font-mono-tech">
+                            <thead class="bg-gray-950 text-gray-500 sticky top-0">
+                                <tr>
+                                    <th class="p-2 rounded-l">時刻</th>
+                                    <th class="p-2">行き先</th>
+                                    <th class="p-2">便名</th>
+                                    <th class="p-2 rounded-r">ステータス</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTableBody" class="divide-y divide-gray-800/50">
+                                <tr id="emptyLogRow">
+                                    <td colspan="4" class="p-4 text-center text-gray-600">
+                                        荷物のスキャン履歴がここに表示されます
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mt-3 pt-3 border-t border-gray-800 text-[11px] text-gray-500 flex justify-between items-center">
+                    <span>Status: ACTIVE</span>
+                    <span>BHS System Connected</span>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-3 text-center text-[11px] text-gray-600">
+        Baggage Identification & Sorting Interface • Simulated for ANA Baggage Tags
+    </footer>
+
+    <!-- Audio Context & App Script -->
+    <script>
+        // --- Web Audio API Integration ---
+        let audioCtx = null;
+        let isAudioMuted = false;
+
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // Toggle sound setting
+        function toggleAudio() {
+            isAudioMuted = !isAudioMuted;
+            const statusText = document.getElementById('audioStatus');
+            const icon = document.getElementById('audioIcon');
+            if (isAudioMuted) {
+                statusText.innerText = 'サウンド: OFF';
+                icon.setAttribute('data-lucide', 'volume-x');
+                icon.classList.remove('text-emerald-400');
+                icon.classList.add('text-gray-500');
+            } else {
+                statusText.innerText = 'サウンド: ON';
+                icon.setAttribute('data-lucide', 'volume-2');
+                icon.classList.remove('text-gray-500');
+                icon.classList.add('text-emerald-400');
+                initAudio();
+            }
+            lucide.createIcons();
+        }
+
+        // Play Normal Success Sound (High chime/chime double beep)
+        function playSuccessSound() {
+            if (isAudioMuted) return;
+            initAudio();
+
+            const now = audioCtx.currentTime;
+            
+            // Oscillator 1 (High tone)
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(1046.50, now); // C6
+            osc1.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+            gain1.gain.setValueAtTime(0.15, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+
+            osc1.start(now);
+            osc1.stop(now + 0.3);
+        }
+
+        // Play Warning / Error Sound (Low buzzer buzz-buzz)
+        function playErrorSound() {
+            if (isAudioMuted) return;
+            initAudio();
+
+            const now = audioCtx.currentTime;
+
+            // Two-tone warning buzzer
+            [0, 0.18].forEach(delay => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now + delay); // Low buzz
+
+                gain.gain.setValueAtTime(0.25, now + delay);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.14);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now + delay);
+                osc.stop(now + delay + 0.14);
+            });
+        }
+
+        // --- Data & State Management ---
+        const presetTags = {
+            'HND': {
+                code: 'HND',
+                name: 'TOKYO HANEDA',
+                flight: 'NH388',
+                passenger: 'WATANABE / TOMOMI',
+                tagId: '0 205 NH 307740',
+                color: 'emerald',
+                gate: 'LANE 1 (HANEDA HUB)'
+            },
+            'YGJ': {
+                code: 'YGJ',
+                name: 'YONAGO',
+                flight: 'NH0389',
+                passenger: 'WATANABE / YUU',
+                tagId: '0205 NH 588011',
+                color: 'cyan',
+                gate: 'LANE 2 (YONAGO)'
+            }
+        };
+
+        const stats = {
+            total: 0,
+            hnd: 0,
+            ygj: 0,
+            error: 0
+        };
+
+        let lastScannedCode = '';
+        let scanCooldown = false;
+
+        // --- Core Scan Logic ---
+        function processScanResult(tagType) {
+            if (scanCooldown) return;
+            scanCooldown = true;
+            setTimeout(() => { scanCooldown = false; }, 1800); // Prevent rapid double scanning
+
+            const board = document.getElementById('displayBoard');
+            const destCode = document.getElementById('destCode');
+            const destName = document.getElementById('destName');
+            const statusBadge = document.getElementById('statusBadge');
+            const statusText = document.getElementById('statusText');
+            const flightNoDisplay = document.getElementById('flightNoDisplay');
+            const passengerDisplay = document.getElementById('passengerDisplay');
+            const tagIdDisplay = document.getElementById('tagIdDisplay');
+            const gateInfo = document.getElementById('gateInfo');
+
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+
+            if (tagType === 'HND' || tagType === 'YGJ') {
+                const data = presetTags[tagType];
+                
+                // Audio
+                playSuccessSound();
+
+                // Stats
+                stats.total++;
+                if (tagType === 'HND') stats.hnd++;
+                if (tagType === 'YGJ') stats.ygj++;
+
+                // Visual updates - Board
+                board.className = `relative bg-gray-950 border-2 border-${data.color}-500 rounded-2xl p-6 flex flex-col justify-between min-h-[260px] md:min-h-[300px] overflow-hidden transition-all duration-300 glow-${data.color}`;
+                
+                destCode.innerText = data.code;
+                destCode.className = `text-7xl md:text-9xl font-black font-display tracking-tight text-${data.color}-400 animate-bounce-once`;
+                
+                destName.innerText = data.name;
+                destName.className = `text-lg md:text-2xl font-bold text-${data.color}-300 tracking-widest mt-1`;
+
+                statusBadge.className = `px-3 py-1 text-xs font-mono-tech rounded-full bg-${data.color}-500/20 text-${data.color}-400 border border-${data.color}-500/40 flex items-center gap-1.5`;
+                statusText.innerText = 'PASS / SORTED OK';
+
+                flightNoDisplay.innerText = `FLIGHT: ${data.flight}`;
+                passengerDisplay.innerText = `PASSENGER: ${data.passenger}`;
+                tagIdDisplay.innerText = data.tagId;
+                gateInfo.innerText = `SORTING BELT: ${data.gate}`;
+
+                // Add to Log
+                addLogEntry(timeStr, data.code, data.flight, 'OK', 'text-emerald-400');
+
+            } else {
+                // ERROR Case (Unread / Wrong passage)
+                playErrorSound();
+
+                stats.total++;
+                stats.error++;
+
+                // Visual updates - Error
+                board.className = 'relative bg-red-950/40 border-2 border-red-500 rounded-2xl p-6 flex flex-col justify-between min-h-[260px] md:min-h-[300px] overflow-hidden transition-all duration-300 glow-red';
+
+                destCode.innerText = 'ERROR';
+                destCode.className = 'text-6xl md:text-8xl font-black font-display tracking-tight text-red-500';
+
+                destName.innerText = 'UNREAD / NO TAG DETECTED';
+                destName.className = 'text-sm md:text-xl font-bold text-red-400 tracking-wider mt-1';
+
+                statusBadge.className = 'px-3 py-1 text-xs font-mono-tech rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center gap-1.5';
+                statusText.innerText = 'WARNING: REJECTED';
+
+                flightNoDisplay.innerText = 'FLIGHT: UNKNOWN';
+                passengerDisplay.innerText = 'PASSENGER: UNKNOWN';
+                tagIdDisplay.innerText = 'ILLEGAL PASSAGE';
+                gateInfo.innerText = 'SORTING BELT: REJECT LANE';
+
+                // Add to Log
+                addLogEntry(timeStr, '???', 'UNKNOWN', 'REJECT', 'text-red-400');
+            }
+
+            // Update Statistics Visuals
+            updateStatsUI();
+
+            // Reset Board back to standby after 3.5 seconds
+            setTimeout(resetBoardToStandby, 3500);
+        }
+
+        function resetBoardToStandby() {
+            if (scanCooldown) return; // Wait if new scan happened
+            const board = document.getElementById('displayBoard');
+            const destCode = document.getElementById('destCode');
+            const destName = document.getElementById('destName');
+            const statusBadge = document.getElementById('statusBadge');
+            const statusText = document.getElementById('statusText');
+
+            board.className = 'relative bg-gray-950 border-2 border-gray-800 rounded-2xl p-6 flex flex-col justify-between min-h-[260px] md:min-h-[300px] overflow-hidden transition-all duration-300';
+            destCode.innerText = '---';
+            destCode.className = 'text-7xl md:text-9xl font-black font-display tracking-tight text-gray-700';
+            destName.innerText = 'STANDBY';
+            destName.className = 'text-lg md:text-2xl font-bold text-gray-500 tracking-widest mt-1';
+
+            statusBadge.className = 'px-3 py-1 text-xs font-mono-tech rounded-full bg-gray-800 text-gray-400 border border-gray-700 flex items-center gap-1.5';
+            statusText.innerText = 'WAITING FOR TAG...';
+        }
+
+        // Manual simulator button handler
+        function simulateTagScan(tagType) {
+            processScanResult(tagType);
+        }
+
+        // Log Table Handler
+        function addLogEntry(time, dest, flight, status, statusColorClass) {
+            const tbody = document.getElementById('logTableBody');
+            const emptyRow = document.getElementById('emptyLogRow');
+            if (emptyRow) emptyRow.remove();
+
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-gray-800/40 transition border-b border-gray-800/40';
+            tr.innerHTML = `
+                <td class="p-2 text-gray-400">${time}</td>
+                <td class="p-2 font-bold ${dest === 'HND' ? 'text-emerald-400' : dest === 'YGJ' ? 'text-cyan-400' : 'text-red-400'}">${dest}</td>
+                <td class="p-2 text-gray-300">${flight}</td>
+                <td class="p-2 ${statusColorClass} font-bold">${status}</td>
+            `;
+
+            tbody.insertBefore(tr, tbody.firstChild);
+        }
+
+        function clearLogs() {
+            const tbody = document.getElementById('logTableBody');
+            tbody.innerHTML = `
+                <tr id="emptyLogRow">
+                    <td colspan="4" class="p-4 text-center text-gray-600">
+                        荷物のスキャン履歴がここに表示されます
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Update Counter Cards & Lane Progress Bars
+        function updateStatsUI() {
+            document.getElementById('statTotal').innerText = stats.total;
+            document.getElementById('statHND').innerText = stats.hnd;
+            document.getElementById('statYGJ').innerText = stats.ygj;
+            document.getElementById('statError').innerText = stats.error;
+
+            // Update Lane Progress Visuals
+            const lane1Bar = document.getElementById('lane1Bar');
+            const lane2Bar = document.getElementById('lane2Bar');
+            
+            document.getElementById('lane1Count').innerText = `${stats.hnd} items`;
+            document.getElementById('lane2Count').innerText = `${stats.ygj} items`;
+
+            const max = Math.max(stats.hnd, stats.ygj, 10);
+            lane1Bar.style.width = `${Math.min((stats.hnd / max) * 100, 100)}%`;
+            lane2Bar.style.width = `${Math.min((stats.ygj / max) * 100, 100)}%`;
+        }
+
+        // --- Camera & Barcode Scanning (jsQR) ---
+        let videoStream = null;
+        let isCameraActive = false;
+
+        async function toggleCamera() {
+            if (isCameraActive) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            initAudio();
+            const video = document.getElementById('webcamVideo');
+            const btnText = document.getElementById('cameraBtnText');
+
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' }
+                });
+                video.srcObject = videoStream;
+                video.classList.remove('hidden');
+                video.play();
+                isCameraActive = true;
+                btnText.innerText = 'カメラ停止';
+                requestAnimationFrame(tickScan);
+            } catch (err) {
+                console.error("Camera Access Error:", err);
+                alert("カメラの起動に失敗しました。カメラ権限を確認してください。");
+            }
+        }
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+            }
+            const video = document.getElementById('webcamVideo');
+            video.classList.add('hidden');
+            document.getElementById('cameraBtnText').innerText = 'カメラ起動';
+            isCameraActive = false;
+        }
+
+        // Frame-by-frame Barcode Detection Loop
+        function tickScan() {
+            if (!isCameraActive) return;
+
+            const video = document.getElementById('webcamVideo');
+            const canvas = document.getElementById('qrCanvas');
+            const ctx = canvas.getContext('2d');
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                // Scan barcode/QR code using jsQR library
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                if (code && code.data) {
+                    const text = code.data.toUpperCase();
+                    // Match rules
+                    if (text.includes('HND') || text.includes('388') || text.includes('307740')) {
+                        processScanResult('HND');
+                    } else if (text.includes('YGJ') || text.includes('389') || text.includes('588011')) {
+                        processScanResult('YGJ');
+                    }
+                }
+            }
+            requestAnimationFrame(tickScan);
+        }
+
+        // --- Clock Update Loop ---
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clockDisplay').innerText = now.toTimeString().split(' ')[0];
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Initialize Lucide Icons
+        window.onload = function() {
+            lucide.createIcons();
+        };
+    </script>
+</body>
+</html>
